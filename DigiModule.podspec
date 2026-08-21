@@ -1,6 +1,6 @@
 Pod::Spec.new do |spec|
   spec.name         = "DigiModule"
-  spec.version      = "1.0.1"
+  spec.version      = "1.0.2"
   spec.summary      = "DigiModule SDK makes it easy to integrate Alliera functionality into your apps."
 
   spec.description  = <<-DESC
