@@ -84,12 +84,8 @@ final class WebViewController: BaseViewController {
             self.webView.isInspectable = true
         }
         
-        #if SWIFT_PACKAGE
-        self.webView.loadHTMLString(self.modifyHTMLFile(), baseURL: Bundle.module.bundleURL)
-        #else
-        self.webView.loadHTMLString(self.modifyHTMLFile(), baseURL: Bundle.main.bundleURL)
-        #endif
-        
+        self.loadSurvey()
+
         self.view.backgroundColor = UIColor(red: 0/255, green: 0/255, blue: 0/255, alpha: 0.2)
         
         self.webView.layer.opacity = 0
@@ -104,6 +100,44 @@ final class WebViewController: BaseViewController {
 }
 
 private extension WebViewController {
+    /// Loads the survey page into the web view.
+    ///
+    /// The survey HTML references its runner script via an absolute
+    /// `file://` URL inside the app's Documents directory. WKWebView blocks
+    /// cross-directory `file://` resource loads unless read access is granted
+    /// explicitly — so `loadHTMLString(_:baseURL:)` (base URL = app bundle)
+    /// silently fails to load that script on iOS, leaving an invisible,
+    /// undismissable overlay. Writing the HTML into the Documents directory and
+    /// loading it with `loadFileURL(_:allowingReadAccessTo:)` grants the read
+    /// access the runner script needs. Android's WebView permits the file load,
+    /// which is why the issue was iOS-only.
+    func loadSurvey() {
+        let html = self.modifyHTMLFile()
+
+        guard let documentsUrl = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            self.loadHTMLStringFallback(html)
+            return
+        }
+
+        let htmlFileUrl = documentsUrl.appendingPathComponent("digi_page.html")
+
+        do {
+            try html.write(to: htmlFileUrl, atomically: true, encoding: .utf8)
+            self.webView.loadFileURL(htmlFileUrl, allowingReadAccessTo: documentsUrl)
+        } catch {
+            Log("Failed to write survey HTML: \(error.localizedDescription)")
+            self.loadHTMLStringFallback(html)
+        }
+    }
+
+    func loadHTMLStringFallback(_ html: String) {
+        #if SWIFT_PACKAGE
+        self.webView.loadHTMLString(html, baseURL: Bundle.module.bundleURL)
+        #else
+        self.webView.loadHTMLString(html, baseURL: Bundle.main.bundleURL)
+        #endif
+    }
+
     func modifyHTMLFile() -> String {
         #if SWIFT_PACKAGE
             let filePath = Bundle.module.path(forResource: "digi_page", ofType: "html")
@@ -152,6 +186,16 @@ private extension WebViewController {
 }
 
 extension WebViewController: WKUIDelegate, WKNavigationDelegate, WKScriptMessageHandler {
+    // The survey page calls `alert()`. Without a UI delegate handler WKWebView
+    // has no panel to present, and on some iOS versions the JS thread stalls
+    // waiting for a dismissal that never comes. Complete the panel immediately.
+    func webView(_ webView: WKWebView,
+                 runJavaScriptAlertPanelWithMessage message: String,
+                 initiatedByFrame frame: WKFrameInfo,
+                 completionHandler: @escaping () -> Void) {
+        completionHandler()
+    }
+
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         self.activityIndicator.isHidden = false
         self.activityIndicator.startAnimating()
